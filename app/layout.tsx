@@ -20,6 +20,12 @@ export default function RootLayout({
           position="top-center"
           richColors
           closeButton
+          toastOptions={{
+            className: 'sm:max-w-md',
+            style: {
+              maxWidth: 'calc(100vw - 2rem)',
+            },
+          }}
         />
       </body>
     </html>

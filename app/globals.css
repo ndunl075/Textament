@@ -9,3 +9,10 @@ body {
   color: #000000;
 }
 
+/* Mobile optimizations */
+@layer utilities {
+  .touch-manipulation {
+    touch-action: manipulation;
+  }
+}
+
