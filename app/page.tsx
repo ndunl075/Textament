@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { subscribeUser } from './actions'
 import { Phone } from 'lucide-react'
+import { toast } from 'sonner'
 
 export default function Home() {
   const [phoneNumber, setPhoneNumber] = useState('')
@@ -18,15 +19,24 @@ export default function Home() {
       const result = await subscribeUser(phoneNumber)
       if (result.success) {
         setStatus('success')
-        setMessage('Successfully subscribed! You will receive daily texts starting tomorrow.')
         setPhoneNumber('')
+        toast.success('Successfully subscribed!', {
+          description: 'You will receive daily texts starting tomorrow.',
+          duration: 5000,
+        })
       } else {
         setStatus('error')
-        setMessage(result.error || 'Something went wrong. Please try again.')
+        toast.error('Subscription failed', {
+          description: result.error || 'Something went wrong. Please try again.',
+          duration: 5000,
+        })
       }
     } catch (error) {
       setStatus('error')
-      setMessage('An unexpected error occurred. Please try again.')
+      toast.error('An unexpected error occurred', {
+        description: 'Please try again later.',
+        duration: 5000,
+      })
     }
   }
 
@@ -80,20 +90,10 @@ export default function Home() {
           <button
             type="submit"
             disabled={status === 'loading'}
-            className="w-full py-5 px-6 font-sans font-semibold text-black bg-transparent border-2 border-black hover:bg-black hover:text-background transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wide"
+            className="w-full py-5 px-6 font-sans font-semibold text-black bg-transparent border-2 border-black hover:bg-black hover:text-background transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wide shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]"
           >
             {status === 'loading' ? 'Subscribing...' : 'Subscribe'}
           </button>
-
-          {message && (
-            <div
-              className={`p-5 border-2 border-black font-sans text-sm ${
-                status === 'success' ? 'bg-black text-background' : 'bg-transparent text-black border-black/30'
-              }`}
-            >
-              {message}
-            </div>
-          )}
         </form>
       </div>
     </main>
