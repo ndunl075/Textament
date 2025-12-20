@@ -114,10 +114,14 @@ export async function GET(request: Request) {
         console.log("Sending Verse Body:", verseBody);
         
         const verseResult = await transporter.sendMail({
-          from: `"Textament" <${process.env.GMAIL_USER}>`,
+          from: process.env.GMAIL_USER, // Remove display name - might trigger spam filters
           to: emailAddress,
-          subject: "Msg",
+          subject: "", // Empty subject - some gateways prefer this
           text: verseBody,
+          headers: {
+            'X-Priority': '1',
+            'X-MSMail-Priority': 'High',
+          },
         });
 
         console.log(`✓ Verse email sent. MessageId: ${verseResult.messageId}`);
@@ -129,10 +133,14 @@ export async function GET(request: Request) {
         console.log("Sending Quote Body:", quoteBody);
 
         const quoteResult = await transporter.sendMail({
-          from: `"Textament" <${process.env.GMAIL_USER}>`,
+          from: process.env.GMAIL_USER, // Remove display name - might trigger spam filters
           to: emailAddress,
-          subject: "Msg",
+          subject: "", // Empty subject - some gateways prefer this
           text: quoteBody,
+          headers: {
+            'X-Priority': '1',
+            'X-MSMail-Priority': 'High',
+          },
         });
 
         console.log(`✓ Quote email sent. MessageId: ${quoteResult.messageId}`);
