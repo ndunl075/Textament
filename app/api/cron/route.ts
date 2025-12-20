@@ -10,6 +10,11 @@ export async function GET(request: Request) {
     console.log("--- STARTING CRON JOB ---");
 
     // 1. SETUP EMAIL TRANSPORTER
+    if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+      console.error("Missing Gmail credentials!");
+      return NextResponse.json({ error: 'Missing Gmail credentials' }, { status: 500 });
+    }
+
     const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
@@ -17,6 +22,15 @@ export async function GET(request: Request) {
         pass: process.env.GMAIL_APP_PASSWORD,
       },
     });
+
+    // Verify transporter connection
+    try {
+      await transporter.verify();
+      console.log("✓ Gmail transporter verified successfully");
+    } catch (verifyError) {
+      console.error("✗ Gmail transporter verification failed:", verifyError);
+      return NextResponse.json({ error: 'Gmail authentication failed' }, { status: 500 });
+    }
 
     // 2. FETCH BIBLE VERSE (With specific error handling)
     let verseText = "For God so loved the world, that he gave his only Son, that whoever believes in him should not perish but have eternal life.";
@@ -75,42 +89,75 @@ export async function GET(request: Request) {
     console.log(`Found ${subscribers.length} subscribers.`);
 
     // 5. SEND MESSAGES
+    const results = {
+      successful: [] as string[],
+      failed: [] as Array<{ phone: string; error: string }>
+    };
+
     for (const sub of subscribers) {
       // Clean phone number (remove +1 and symbols for @vtext.com)
       const cleanNumber = sub.phone_number.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
+      
+      if (cleanNumber.length !== 10) {
+        const error = `Invalid phone number format: ${sub.phone_number} (cleaned: ${cleanNumber})`;
+        console.error(error);
+        results.failed.push({ phone: sub.phone_number, error });
+        continue;
+      }
+
       const emailAddress = `${cleanNumber}@vtext.com`;
+      console.log(`\n--- Processing: ${sub.phone_number} -> ${emailAddress} ---`);
 
-      console.log(`Sending to: ${emailAddress}`);
+      try {
+        // MESSAGE 1: BIBLE VERSE
+        const verseBody = `${verseText}\n- ${verseRef}`;
+        console.log("Sending Verse Body:", verseBody);
+        
+        const verseResult = await transporter.sendMail({
+          from: `"Textament" <${process.env.GMAIL_USER}>`,
+          to: emailAddress,
+          subject: "Msg",
+          text: verseBody,
+        });
 
-      // MESSAGE 1: BIBLE VERSE
-      const verseBody = `${verseText}\n- ${verseRef}`;
-      console.log("Sending Verse Body:", verseBody); // Debug log
-      
-      await transporter.sendMail({
-        from: `"Textament" <${process.env.GMAIL_USER}>`,
-        to: emailAddress,
-        subject: "Msg",
-        text: verseBody, // IMPORTANT: Using 'text' not 'html'
-      });
+        console.log(`✓ Verse email sent. MessageId: ${verseResult.messageId}`);
+        console.log("Waiting 10 seconds...");
+        await sleep(10000);
 
-      console.log("Verse sent. Waiting 10 seconds...");
-      await sleep(10000); // Wait to avoid spam filter
+        // MESSAGE 2: MOTIVATION
+        const quoteBody = `${quoteText}\n- ${quoteAuthor}`;
+        console.log("Sending Quote Body:", quoteBody);
 
-      // MESSAGE 2: MOTIVATION
-      const quoteBody = `${quoteText}\n- ${quoteAuthor}`;
-      console.log("Sending Quote Body:", quoteBody); // Debug log
+        const quoteResult = await transporter.sendMail({
+          from: `"Textament" <${process.env.GMAIL_USER}>`,
+          to: emailAddress,
+          subject: "Msg",
+          text: quoteBody,
+        });
 
-      await transporter.sendMail({
-        from: `"Textament" <${process.env.GMAIL_USER}>`,
-        to: emailAddress,
-        subject: "Msg",
-        text: quoteBody,
-      });
-      
-      console.log("Quote sent.");
+        console.log(`✓ Quote email sent. MessageId: ${quoteResult.messageId}`);
+        results.successful.push(sub.phone_number);
+      } catch (emailError) {
+        const errorMsg = emailError instanceof Error ? emailError.message : String(emailError);
+        console.error(`✗ Failed to send to ${emailAddress}:`, errorMsg);
+        results.failed.push({ phone: sub.phone_number, error: errorMsg });
+      }
     }
 
-    return NextResponse.json({ success: true, message: "Messages sent" });
+    console.log(`\n=== SUMMARY ===`);
+    console.log(`Successful: ${results.successful.length}`);
+    console.log(`Failed: ${results.failed.length}`);
+    if (results.failed.length > 0) {
+      console.log("Failures:", results.failed);
+    }
+
+    return NextResponse.json({ 
+      success: true, 
+      message: "Messages sent",
+      successful: results.successful.length,
+      failed: results.failed.length,
+      failures: results.failed.length > 0 ? results.failed : undefined
+    });
 
   } catch (error) {
     console.error('Fatal Error:', error);

@@ -5,6 +5,9 @@ import { Toaster } from 'sonner'
 export const metadata: Metadata = {
   title: 'Textament - Daily Wisdom & Drive',
   description: 'Receive daily Bible verses and motivational quotes via SMS',
+  icons: {
+    icon: '/favicon.ico',
+  },
 }
 
 export default function RootLayout({
