@@ -116,3 +116,6 @@ If logs show emails are being accepted by Gmail but texts aren't arriving:
 4. Contact Verizon support if emails are being sent but not converted to SMS
 5. Consider using a different SMS gateway or service
 
+
+
+
