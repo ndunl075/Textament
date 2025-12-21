@@ -53,12 +53,25 @@ export async function GET(request: Request) {
         emailAddress: emailAddress,
         messageId: result.messageId,
         testMessage: testMessage,
+        messageLength: testMessage.length,
+      },
+      troubleshooting: {
+        step1: 'Check your Gmail Sent folder - if the email is there, Gmail sent it successfully',
+        step2: 'Wait 1-2 minutes for SMS to arrive',
+        step3: 'If email is in Sent folder but no SMS arrived:',
+        step3a: '  - Text "Status" to 4040 to check if email-to-text is enabled on your Verizon account',
+        step3b: '  - Text "On" to 4040 to enable email-to-text if it\'s disabled',
+        step3c: '  - Verify your phone number is actually on Verizon (vtext.com only works for Verizon)',
+        step3d: '  - Verizon may be blocking emails from your Gmail account (common issue)',
+        step4: 'If no email in Sent folder: Gmail authentication or sending failed (check logs)',
+        note: 'Verizon\'s email-to-SMS service has known reliability issues and may silently reject emails',
       },
       instructions: [
         '1. Check your Gmail Sent folder for the email',
         '2. Wait 1-2 minutes for SMS to arrive',
-        '3. If email is in Sent but no SMS: Verizon may be blocking',
-        '4. If no email in Sent: Gmail send failed',
+        '3. If email is in Sent but no SMS: Check email-to-text status by texting "Status" to 4040',
+        '4. Enable email-to-text by texting "On" to 4040 if disabled',
+        '5. Verify your number is Verizon and not blocked',
       ]
     });
 

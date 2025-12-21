@@ -1,36 +1,19 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import nodemailer from 'nodemailer';
-
-// Helper to pause execution (prevents spam blocking)
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+import twilio from 'twilio';
 
 export async function GET(request: Request) {
   try {
     console.log("--- STARTING CRON JOB ---");
 
-    // 1. SETUP EMAIL TRANSPORTER
-    if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
-      console.error("Missing Gmail credentials!");
-      return NextResponse.json({ error: 'Missing Gmail credentials' }, { status: 500 });
+    // 1. SETUP TWILIO CLIENT
+    if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_NUMBER) {
+      console.error("Missing Twilio credentials!");
+      return NextResponse.json({ error: 'Missing Twilio credentials. Need TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_NUMBER' }, { status: 500 });
     }
 
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.GMAIL_USER,
-        pass: process.env.GMAIL_APP_PASSWORD,
-      },
-    });
-
-    // Verify transporter connection
-    try {
-      await transporter.verify();
-      console.log("✓ Gmail transporter verified successfully");
-    } catch (verifyError) {
-      console.error("✗ Gmail transporter verification failed:", verifyError);
-      return NextResponse.json({ error: 'Gmail authentication failed' }, { status: 500 });
-    }
+    const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+    console.log("✓ Twilio client initialized successfully");
 
     // 2. FETCH BIBLE VERSE (With specific error handling)
     let verseText = "For God so loved the world, that he gave his only Son, that whoever believes in him should not perish but have eternal life.";
@@ -95,60 +78,48 @@ export async function GET(request: Request) {
     };
 
     for (const sub of subscribers) {
-      // Clean phone number (remove +1 and symbols for @vtext.com)
-      const cleanNumber = sub.phone_number.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1');
+      // Ensure phone number is in E.164 format for Twilio (+1234567890)
+      let phoneNumber = sub.phone_number.trim();
       
-      if (cleanNumber.length !== 10) {
-        const error = `Invalid phone number format: ${sub.phone_number} (cleaned: ${cleanNumber})`;
-        console.error(error);
-        results.failed.push({ phone: sub.phone_number, error });
-        continue;
+      // If phone number doesn't start with +, add +1 for US numbers
+      if (!phoneNumber.startsWith('+')) {
+        // Remove all non-digits
+        const digits = phoneNumber.replace(/\D/g, '');
+        // If it's 10 digits, assume US number and add +1
+        if (digits.length === 10) {
+          phoneNumber = `+1${digits}`;
+        } else if (digits.length === 11 && digits.startsWith('1')) {
+          phoneNumber = `+${digits}`;
+        } else {
+          const error = `Invalid phone number format: ${sub.phone_number}`;
+          console.error(error);
+          results.failed.push({ phone: sub.phone_number, error });
+          continue;
+        }
       }
-
-      const emailAddress = `${cleanNumber}@vtext.com`;
-      console.log(`\n--- Processing: ${sub.phone_number} -> ${emailAddress} ---`);
+      
+      console.log(`\n--- Processing: ${sub.phone_number} -> ${phoneNumber} ---`);
 
       try {
-        // MESSAGE 1: BIBLE VERSE
-        const verseBody = `${verseText}\n- ${verseRef}`;
-        console.log("Sending Verse Body:", verseBody);
+        // COMBINED MESSAGE: BIBLE VERSE + MOTIVATION
+        const messageBody = `Daily Textament\n\n"${verseText}"\n\nDaily Motivation\n\n"${quoteText}"`;
+        console.log("Sending Combined Message Body:", messageBody);
+        console.log("Message length:", messageBody.length, "characters");
         
-        const verseResult = await transporter.sendMail({
-          from: process.env.GMAIL_USER, // Remove display name - might trigger spam filters
-          to: emailAddress,
-          subject: "", // Empty subject - some gateways prefer this
-          text: verseBody,
-          headers: {
-            'X-Priority': '1',
-            'X-MSMail-Priority': 'High',
-          },
+        const result = await client.messages.create({
+          body: messageBody,
+          from: process.env.TWILIO_NUMBER,
+          to: phoneNumber,
         });
 
-        console.log(`✓ Verse email sent. MessageId: ${verseResult.messageId}`);
-        console.log("Waiting 10 seconds...");
-        await sleep(10000);
-
-        // MESSAGE 2: MOTIVATION
-        const quoteBody = `${quoteText}\n- ${quoteAuthor}`;
-        console.log("Sending Quote Body:", quoteBody);
-
-        const quoteResult = await transporter.sendMail({
-          from: process.env.GMAIL_USER, // Remove display name - might trigger spam filters
-          to: emailAddress,
-          subject: "", // Empty subject - some gateways prefer this
-          text: quoteBody,
-          headers: {
-            'X-Priority': '1',
-            'X-MSMail-Priority': 'High',
-          },
-        });
-
-        console.log(`✓ Quote email sent. MessageId: ${quoteResult.messageId}`);
+        console.log(`✓ Message sent. Message SID: ${result.sid}`);
         results.successful.push(sub.phone_number);
-      } catch (emailError) {
-        const errorMsg = emailError instanceof Error ? emailError.message : String(emailError);
-        console.error(`✗ Failed to send to ${emailAddress}:`, errorMsg);
+      } catch (smsError) {
+        // Log error but continue to next subscriber
+        const errorMsg = smsError instanceof Error ? smsError.message : String(smsError);
+        console.error(`✗ Failed to send to ${phoneNumber}:`, errorMsg);
         results.failed.push({ phone: sub.phone_number, error: errorMsg });
+        // Continue to next subscriber instead of crashing
       }
     }
 
@@ -164,7 +135,8 @@ export async function GET(request: Request) {
       message: "Messages sent",
       successful: results.successful.length,
       failed: results.failed.length,
-      failures: results.failed.length > 0 ? results.failed : undefined
+      failures: results.failed.length > 0 ? results.failed : undefined,
+      note: "Messages sent via Twilio API. Check Twilio dashboard for delivery status."
     });
 
   } catch (error) {
