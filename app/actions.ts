@@ -1,65 +1,75 @@
 'use server'
 
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@supabase/supabase-js'
 
-export async function subscribeUser(phoneNumber: string) {
-  // Basic phone number validation
-  const phoneRegex = /^\+[1-9]\d{1,14}$/
-  
-  if (!phoneRegex.test(phoneNumber.trim())) {
+// Initialize Supabase with service role key to bypass RLS for public signups
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+
+if (!supabaseUrl || !supabaseServiceKey) {
+  throw new Error('Missing Supabase environment variables')
+}
+
+const supabase = createClient(supabaseUrl, supabaseServiceKey)
+
+export async function subscribeUser(prevState: any, formData: FormData) {
+  // Extract phone field from formData
+  const phone = formData.get('phone') as string
+
+  // Validation: Return error if field is empty
+  if (!phone || phone.trim() === '') {
     return {
       success: false,
-      error: 'Please enter a valid phone number with country code (e.g., +1234567890)',
+      message: 'Phone number is required',
+    }
+  }
+
+  // Formatting: Strip all non-numeric characters
+  const cleanNumber = phone.replace(/\D/g, '')
+
+  // If exactly 10 digits, prepend '1' to make it E.164 compliant
+  let formattedNumber: string
+  if (cleanNumber.length === 10) {
+    formattedNumber = `1${cleanNumber}`
+  } else if (cleanNumber.length === 11 && cleanNumber.startsWith('1')) {
+    formattedNumber = cleanNumber
+  } else {
+    return {
+      success: false,
+      message: 'Please enter a valid 10-digit phone number',
     }
   }
 
   try {
-    // Check if phone number already exists
-    const { data: existing } = await supabase
-      .from('subscribers')
-      .select('id, active')
-      .eq('phone_number', phoneNumber.trim())
-      .single()
-
-    if (existing) {
-      if (existing.active) {
-        return {
-          success: false,
-          error: 'This phone number is already subscribed.',
-        }
-      } else {
-        // Reactivate existing subscriber
-        const { error } = await supabase
-          .from('subscribers')
-          .update({ active: true })
-          .eq('id', existing.id)
-
-        if (error) throw error
-
-        return {
-          success: true,
-        }
-      }
-    }
-
-    // Insert new subscriber
+    // Insertion: Insert the cleaned number into textament_subscribers table
     const { error } = await supabase
-      .from('subscribers')
+      .from('textament_subscribers')
       .insert({
-        phone_number: phoneNumber.trim(),
+        phone_number: formattedNumber,
         active: true,
       })
 
-    if (error) throw error
+    if (error) {
+      // Handle duplicate number error (Postgres error code 23505)
+      if (error.code === '23505') {
+        return {
+          success: true,
+          message: "You're already on the list!",
+        }
+      }
+      // Other errors
+      throw error
+    }
 
     return {
       success: true,
+      message: 'Successfully subscribed!',
     }
   } catch (error) {
     console.error('Error subscribing user:', error)
     return {
       success: false,
-      error: 'Failed to subscribe. Please try again later.',
+      message: 'Failed to subscribe. Please try again later.',
     }
   }
 }

@@ -83,3 +83,4 @@ Since Verizon's email-to-SMS service is unreliable and frequently blocks automat
 5. ✅ Try sending a manual test email from Gmail
 6. ⚠️ If still not working, consider migrating to a paid SMS API service
 
+

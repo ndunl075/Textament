@@ -205,3 +205,4 @@ To change the time, modify `vercel.json`:
 - `0 13 * * *` = 13:00 UTC = 8:00 AM EST
 - Use [crontab.guru](https://crontab.guru) to calculate your desired time
 
+

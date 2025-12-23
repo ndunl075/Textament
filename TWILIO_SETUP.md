@@ -106,3 +106,4 @@ When deploying (e.g., to Vercel):
 - Look for error messages or delivery status
 - Twilio provides detailed error messages (unlike email gateways)
 
+

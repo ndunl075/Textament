@@ -1,21 +1,21 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import twilio from 'twilio';
+import { Resend } from 'resend';
 
 export async function GET(request: Request) {
   try {
     console.log("--- STARTING TEXTAMENT JOB ---");
 
-    // 1. SETUP TWILIO CLIENT
-    if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_NUMBER) {
-      console.error("Missing Twilio credentials!");
+    // 1. SETUP RESEND CLIENT
+    if (!process.env.RESEND_API_KEY) {
+      console.error("Missing Resend API key!");
       return NextResponse.json({ 
-        error: 'Missing Twilio credentials. Need TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_NUMBER' 
+        error: 'Missing Resend API key. Need RESEND_API_KEY' 
       }, { status: 500 });
     }
 
-    const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-    console.log("✓ Twilio client initialized successfully");
+    const resend = new Resend(process.env.RESEND_API_KEY);
+    console.log("✓ Resend client initialized successfully");
 
     // 2. FETCH BIBLE VERSE
     let verseText = "For God so loved the world, that he gave his only Son, that whoever believes in him should not perish but have eternal life.";
@@ -81,64 +81,48 @@ export async function GET(request: Request) {
 
     console.log(`Found ${subscribers.length} subscribers.`);
 
-    // 5. SEND MESSAGES
+    // 5. SEND MESSAGES VIA RESEND TO VERIZON MMS
     let totalSent = 0;
 
     for (const subscriber of subscribers) {
-      // Ensure phone number is in E.164 format for Twilio (+1234567890)
-      let phoneNumber = subscriber.phone_number.trim();
+      // Strip all non-numeric characters (remove +1, -, (, ), spaces, etc.)
+      const cleanNumber = subscriber.phone_number.replace(/\D/g, '');
       
-      // Strip all non-digit characters (handles formats like "555-555-5555")
-      const digits = phoneNumber.replace(/\D/g, '');
-      
-      // Format to E.164: Add +1 for US numbers if not already in E.164 format
-      if (!phoneNumber.startsWith('+')) {
-        if (digits.length === 10) {
-          // 10 digits: assume US number, add +1 (e.g., "555-555-5555" -> "+15555555555")
-          phoneNumber = `+1${digits}`;
-        } else if (digits.length === 11 && digits.startsWith('1')) {
-          // 11 digits starting with 1: add + (e.g., "15555555555" -> "+15555555555")
-          phoneNumber = `+${digits}`;
-        } else {
-          // Invalid format
-          console.error(`Invalid phone number format: ${subscriber.phone_number}`);
-          continue;
-        }
-      } else {
-        // Already starts with +, assume it's in E.164 format
-        // Just ensure it only contains digits after the +
-        if (!/^\+\d+$/.test(phoneNumber)) {
-          // If it has non-digits after +, extract and reformat
-          phoneNumber = `+${digits}`;
-        }
+      // Validate phone number format (should be 10 digits for US numbers)
+      if (cleanNumber.length !== 10) {
+        console.error(`Invalid phone number format: ${subscriber.phone_number} (cleaned: ${cleanNumber})`);
+        continue;
       }
       
-      console.log(`\n--- Processing: ${subscriber.phone_number} -> ${phoneNumber} ---`);
+      // Construct Verizon MMS email address (vzwpix.com allows longer messages ~1000 chars)
+      const verizonAddress = `${cleanNumber}@vzwpix.com`;
+      
+      console.log(`\n--- Processing: ${subscriber.phone_number} -> ${verizonAddress} ---`);
 
       try {
-        // Build message body with exact format: Daily Textament\n\n[Bible Verse] - [Reference]\n\nDaily Motivation:\n\n"[Quote]" - [Author]
-        const messageBody = `Daily Textament\n\n${verseText} - ${verseRef}\n\nDaily Motivation:\n\n"${quoteText}" - ${quoteAuthor}`;
-        console.log("Sending message (length:", messageBody.length, "chars)");
+        // Build HTML message body with exact format
+        const htmlBody = `<p><strong>Daily Textament</strong></p>
+<p>${verseText} - ${verseRef}</p>
+<br><br>
+<p><strong>Daily Motivation:</strong></p>
+<p>"${quoteText}" - ${quoteAuthor}</p>`;
         
-        const result = await client.messages.create({
-          body: messageBody,
-          from: process.env.TWILIO_NUMBER,
-          to: phoneNumber,
+        console.log("Sending message (length:", htmlBody.length, "chars)");
+        
+        const result = await resend.emails.send({
+          from: 'onboarding@resend.dev',
+          to: verizonAddress,
+          subject: 'Daily Textament',
+          html: htmlBody,
         });
 
-        console.log(`✓ Message sent to ${phoneNumber}. Message SID: ${result.sid}`);
+        console.log(`✓ Message sent to ${verizonAddress}. Email ID: ${result.id}`);
         totalSent++;
-      } catch (smsError: any) {
-        // Handle unverified number error (21608) specifically
-        if (smsError.code === 21608) {
-          console.log(`Skipped - Unverified Number: ${phoneNumber}`);
-          // Continue to next subscriber without incrementing totalSent
-        } else {
-          // Log other errors but continue the loop
-          const errorMsg = smsError instanceof Error ? smsError.message : String(smsError);
-          console.error(`✗ Failed to send to ${phoneNumber}:`, errorMsg);
-          // Continue to next subscriber instead of crashing
-        }
+      } catch (emailError: any) {
+        // Log error but continue to next subscriber
+        const errorMsg = emailError instanceof Error ? emailError.message : String(emailError);
+        console.error(`✗ Failed to send to ${verizonAddress}:`, errorMsg);
+        // Continue to next subscriber instead of crashing
       }
     }
 
